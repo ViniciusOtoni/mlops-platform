@@ -262,7 +262,7 @@ versão que testou, e atualiza deliberadamente quando quiser adotar uma nova.
 | Risco | Situação |
 |---|---|
 | Conta pessoal do GitHub não compartilha secrets entre repositórios automaticamente (diferente de uma Organization) | Cada repositório (framework ou domínio) precisa da sua própria cópia de `DATABRICKS_HOST`/`DATABRICKS_TOKEN`. Sem mitigação automatizada no v1 — documentado como processo manual de setup por repositório. |
-| `secrets: inherit` em reusable workflow entre repositórios distintos | Comportamento assumido com base na documentação pública do GitHub Actions (secrets do repositório chamador são propagados); deve ser confirmado na primeira execução real de CI de um repositório de componente já emendado. |
+| `secrets: inherit` em reusable workflow entre repositórios distintos | **Confirmado ao vivo (2026-08-24).** PR do `feature-platform` mergeado disparou `Deploy` de verdade contra `mlops-platform@main`: `workflow_call` resolveu, todos os steps até `Install Databricks CLI` passaram. Único ponto de falha (esperado, sem relação com este risco): `feature-platform` ainda não tem `DATABRICKS_HOST`/`DATABRICKS_TOKEN` configurados como secrets do repositório — ver o risco acima, item de setup manual pendente. |
 | Múltiplos bundles por matrix, mesmo repositório | Cada entrada do matrix roda como um job independente; falhas isoladas por subpasta não bloqueiam as demais por padrão do GitHub Actions — comportamento esperado, não uma limitação. |
 
 ## 8. Testes

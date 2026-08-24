@@ -238,19 +238,43 @@ git commit -m "docs: add platform.yml convention example and usage README"
 
 ## Task 4: Verificação (dependente das emendas nos repositórios de componente)
 
+**Concluída em 2026-08-24, ao vivo — `workflow_call` e `secrets: inherit` confirmados
+funcionando entre repositórios.**
+
 Este repositório, sozinho, não tem como se autoverificar — um reusable workflow só é
 exercitado por quem o chama.
 
-- [ ] **Step 1:** Depois que a emenda do `feature-platform` (plano de emenda próprio)
+- [x] **Step 1:** Depois que a emenda do `feature-platform` (plano de emenda próprio)
   trocar seu `.github/workflows/deploy.yml` para chamar
   `ViniciusOtoni/mlops-platform/.github/workflows/deploy-bundle.yml@main`, confirmar
   no GitHub Actions do `feature-platform` que o job de deploy é resolvido corretamente
   (a interface `workflow_call` é reconhecida, os inputs chegam, o secret é herdado).
 
-- [ ] **Step 2:** Se `secrets: inherit` não propagar como documentado na seção 4 do
+  Confirmado: PR #1 do `feature-platform` foi mergeado em `main` (depois deste
+  repositório também ter sido mergeado em `main`, para que `@main` resolvesse),
+  disparando `Deploy` de verdade (run
+  [32791454180](https://github.com/ViniciusOtoni/feature-platform/actions/runs/32791454180)).
+  Todos os steps até `Install Databricks CLI` passaram (`checkout`, `Set up Python`,
+  `Install dev dependencies`, `Run unit tests`, `Generate resources`) — confirmando que
+  a interface `workflow_call` resolveu corretamente entre repositórios, que
+  `working-directory` funcionou, e que `secrets: inherit` propagou o mecanismo sem
+  erro. O step `Deploy bundle` falhou, mas por um motivo já conhecido e sem relação com
+  este design: `feature-platform` nunca teve `DATABRICKS_HOST`/`DATABRICKS_TOKEN`
+  configurados como secrets do repositório (gap já sinalizado ao usuário em sessões
+  anteriores, aceito conscientemente para este teste — "merge agora mesmo assim").
+
+- [x] **Step 2:** Se `secrets: inherit` não propagar como documentado na seção 4 do
   spec (risco listado na seção 7), documentar o comportamento real encontrado no spec
   deste repositório e ajustar — por exemplo, passando os secrets explicitamente via
   `secrets:` com mapeamento nomeado, em vez de `inherit`.
+
+  Não foi necessário — `secrets: inherit` funcionou exatamente como documentado no
+  spec (seção 4). O design do reusable workflow está confirmado correto; o único
+  passo restante para um deploy real de ponta a ponta é configurar
+  `DATABRICKS_HOST`/`DATABRICKS_TOKEN` como secrets em cada repositório chamador
+  (`feature-platform` e, quando chegar a hora, `training-platform`,
+  `serving-platform`, `monitoring-platform`) — uma ação manual do usuário, fora do
+  escopo deste repositório.
 
 ---
 
