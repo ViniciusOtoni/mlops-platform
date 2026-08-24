@@ -1,0 +1,59 @@
+# .github/workflows/deploy-bundle.yml
+name: Deploy Bundle (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Caminho do bundle DAB dentro do repositório chamador.
+        required: true
+        type: string
+      bundle-target:
+        description: Target do bundle (dev, prod, etc.).
+        required: false
+        type: string
+        default: dev
+      python-version:
+        required: false
+        type: string
+        default: "3.11"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: pytest
+
+      - name: Generate resources (if this bundle has a generator)
+        run: |
+          if [ -f scripts/generate_resources.py ]; then
+            python scripts/generate_resources.py
+          else
+            echo "no scripts/generate_resources.py — skipping"
+          fi
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy bundle
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          databricks bundle deploy -t ${{ inputs.bundle-target }} \
+            --var="git_commit=${{ github.sha }}" \
+            --var="git_branch=${{ github.ref_name }}"
