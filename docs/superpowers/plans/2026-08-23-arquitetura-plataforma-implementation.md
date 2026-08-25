@@ -276,6 +276,27 @@ exercitado por quem o chama.
   `serving-platform`, `monitoring-platform`) — uma ação manual do usuário, fora do
   escopo deste repositório.
 
+> **Correção (2026-08-25, achada ao vivo construindo o primeiro repositório de
+> domínio real, `exemplo-domain`):** com os secrets configurados corretamente no
+> repositório chamador, o step `Deploy bundle` passou a funcionar, mas o step
+> **`Generate resources`** de `serving/online` falhou com `ValueError: default auth:
+> cannot configure default credentials`. Causa: `serving-platform`'s
+> `generate_resources.py` chama `WorkspaceClient().model_versions.get_by_alias(...)`
+> para resolver o alias de um `ServingConfig` online — uma chamada real à API do
+> Databricks que acontece **antes** do step `Deploy bundle`, mas `DATABRICKS_HOST`/
+> `DATABRICKS_TOKEN` só existiam como `env:` do step `Deploy bundle`, não do job
+> inteiro. Qualquer bundle cujo gerador precise de acesso live à API (não é o caso de
+> `feature-platform`/`monitoring-platform`, cujos geradores são puros) falhava aqui,
+> mesmo com os secrets corretamente configurados no repositório chamador. Corrigido
+> movendo `DATABRICKS_HOST`/`DATABRICKS_TOKEN` para o nível do job (`jobs.deploy.env`)
+> em vez do step `Deploy bundle`, tornando-os visíveis a todos os steps.
+>
+> **Confirmado ao vivo:** depois da correção, `exemplo-domain` fez deploy com sucesso
+> dos 5 bundles (`features`, `training`, `serving/batch`, `serving/online`,
+> `monitoring`) via este workflow reusável — a primeira verificação de ponta a ponta
+> deste repositório com múltiplos bundles reais, incluindo um gerador que faz
+> chamadas live à API.
+
 ---
 
 ## Self-Review
