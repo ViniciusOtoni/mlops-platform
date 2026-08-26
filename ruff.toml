@@ -1,0 +1,24 @@
+target-version = "py311"
+line-length = 120
+
+# notebooks/ são fonte de notebook Databricks (marcadores de célula
+# "# COMMAND ----------", globais injetados em runtime como dbutils/spark) —
+# não são módulos Python importáveis, não fazem sentido lintar como tal.
+extend-exclude = ["**/notebooks/**"]
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[lint.isort]
+known-first-party = [
+    "platform_core",
+    "feature_platform",
+    "training_platform",
+    "serving_platform",
+    "monitoring_platform",
+]
+
+[lint.per-file-ignores]
+# scripts/*.py fazem sys.path.insert antes do import — não são módulos do
+# pacote instalável, são entry points standalone chamados pelo CI.
+"**/scripts/*.py" = ["E402"]

@@ -1,0 +1,73 @@
+# .github/workflows/ci-validate.yml
+name: CI Validate (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Caminho do pacote/bundle dentro do repositório chamador.
+        required: true
+        type: string
+      python-version:
+        required: false
+        type: string
+        default: "3.11"
+      check-version-tag:
+        description: Falha se a tag '<nome>-v<versao>' do pyproject.toml já existir.
+        required: false
+        type: boolean
+        default: true
+      validate-bundle:
+        description: Roda `databricks bundle validate` no working-directory.
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # precisa do histórico de tags para o check-version-tag
+
+      - name: Checkout mlops-platform (ruff config + scripts compartilhados)
+        uses: actions/checkout@v4
+        with:
+          repository: ViniciusOtoni/mlops-platform
+          path: .mlops-platform
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install ruff
+          if [ -f pyproject.toml ]; then pip install -e .; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Lint (ruff)
+        run: ruff check --config "$GITHUB_WORKSPACE/.mlops-platform/ruff.toml" .
+
+      - name: Run unit tests
+        run: pytest
+
+      - name: Check version bump against existing tags
+        if: inputs.check-version-tag
+        run: python "$GITHUB_WORKSPACE/.mlops-platform/scripts/check_version_tag.py" .
+
+      - name: Install Databricks CLI
+        if: inputs.validate-bundle
+        uses: databricks/setup-cli@main
+
+      - name: Validate bundle syntax
+        if: inputs.validate-bundle
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: databricks bundle validate

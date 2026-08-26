@@ -1,0 +1,77 @@
+# .github/workflows/release-package.yml
+#
+# Requer que o repositório chamador tenha "Read and write permissions" habilitado
+# para o GITHUB_TOKEN em Settings > Actions > General > Workflow permissions —
+# sem isso, a criação de tag/release falha por falta de permissão.
+name: Release Package (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Caminho do pacote dentro do repositório chamador.
+        required: true
+        type: string
+      python-version:
+        required: false
+        type: string
+        default: "3.11"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install build backend
+        run: pip install build
+
+      - name: Read package name/version from pyproject.toml
+        id: pkg
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          data = tomllib.load(open("pyproject.toml", "rb"))
+          print(f"name={data['project']['name']}")
+          print(f"version={data['project']['version']}")
+          PY
+
+      - name: Build wheel
+        run: python -m build --wheel
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ steps.pkg.outputs.name }}-v${{ steps.pkg.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      # Sem --latest: com múltiplos pacotes no mesmo repositório, o flag "latest"
+      # do GitHub é por-repositório, não por-pacote — marcá-lo criaria uma noção
+      # enganosa de "mais recente" entre pacotes independentes. Sem --generate-notes
+      # pelo mesmo motivo: compararia contra a tag anterior de qualquer pacote, não
+      # necessariamente deste.
+      - name: Create GitHub Release with the wheel as asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.pkg.outputs.name }}-v${{ steps.pkg.outputs.version }}
+          NAME: ${{ steps.pkg.outputs.name }}
+          VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          gh release create "$TAG" dist/*.whl \
+            --title "$NAME v$VERSION" \
+            --notes "Release automático a partir do merge ${{ github.sha }}."

@@ -1,4 +1,13 @@
 # .github/workflows/deploy-bundle.yml
+#
+# Entrega de dependências no cluster (job_cluster/serverless) é 100% declarativa,
+# resolvida pelo `databricks bundle deploy` abaixo — sem step manual de venv/
+# init_script/Volume aqui. O wheel do próprio bundle vem de um bloco `artifacts:`
+# no `databricks.yml` (a CLI builda e sobe sozinha); as libs-framework vêm do
+# Environment nativo do job, referenciando os wheels publicados como asset de
+# Release em platform-libs (ver release-package.yml). Decisão validada via
+# /grill-me: o design original (venv empacotada + init_script) nunca chegou a
+# ser implementado aqui — os bundles já rodam em serverless, sem cluster spec.
 name: Deploy Bundle (reusable)
 
 on:
