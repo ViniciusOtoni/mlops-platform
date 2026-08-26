@@ -282,3 +282,53 @@ domínios reais vivem", só o harness de teste de integração do próprio frame
 `.github/workflows/deploy.yml` de cada um passou a ser um caller fino deste reusable
 workflow. Os detalhes de cada emenda estão documentados no spec de cada repositório
 afetado, seção "Emenda".
+
+---
+
+## 10. Emenda (2026-08-26) — consolidação num framework único
+
+As seções 1–9 descrevem uma arquitetura de **quatro pacotes-framework em quatro
+repositórios**. Isso deixou de valer. Esta emenda registra o que mudou e por quê;
+o texto acima fica como registro histórico da decisão anterior, não como descrição
+do estado atual.
+
+### O que mudou
+
+Os quatro componentes viraram **um pacote só, `mlplatform`**, com um módulo por
+bounded context (`features`, `training`, `serving`, `monitoring`) e um shared
+kernel em `core/`. Os quatro repositórios foram apagados; todo o histórico está
+preservado no `platform-libs`, que passou a hospedar o pacote único.
+
+### Por quê
+
+A separação em quatro repositórios resolvia um problema real — versionamento
+independente por componente — mas cobrava um preço que só ficou visível depois de
+o ecossistema rodar ponta a ponta:
+
+- **Duplicação que divergiu em silêncio.** `Finding` existia em três cópias com
+  campos diferentes. O helper de Environment existia em três cópias, e a de
+  monitoring tinha um bug (aplicava a chave só em `tasks[0]`) que as outras não
+  tinham. Ninguém percebeu porque nenhum code review olhava os três repositórios
+  ao mesmo tempo.
+- **Regra de plataforma vazando para o domínio.** A convenção
+  `{catalog}.{domain}_models.{model}` estava hardcodada em seis lugares, incluindo
+  scripts do repositório de domínio.
+- **Acoplamento sem validação possível.** `FeatureLookupSpec.table_name` é uma
+  string que precisa bater com o nome derivado de uma `@feature_table` registrada
+  em *outro* repositório. Com quatro pacotes, nada podia verificar isso. Com um
+  só, os dois registries carregam no mesmo processo e a checagem passa a existir.
+
+### O que se perdeu, e como foi compensado
+
+O isolamento de blast radius: antes, um release ruim de `feature-platform` não
+podia derrubar o deploy de serving, porque eram versões independentes. Agora uma
+versão de `mlplatform` cobre os quatro. A compensação é pin **exato** por bundle
+(`@mlplatform-vX.Y.Z`, nunca range), preservando a capacidade de cada bundle do
+domínio subir em momento diferente.
+
+### O contrato que substitui a fronteira física
+
+Com quatro repositórios, o acoplamento entre contextos era impossível por
+construção. Num pacote só, ele custa um import. O `ruff.toml` deste repositório
+passa a impor, em CI, que os bounded contexts não se importem entre si e que o
+`core/` não importe contexto nenhum — ver a seção correspondente no README.

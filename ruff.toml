@@ -15,18 +15,47 @@ src = ["src"]
 extend-exclude = ["**/notebooks/**"]
 
 [lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "TID"]
 
 [lint.isort]
 known-first-party = [
-    "platform_core",
-    "feature_platform",
-    "training_platform",
-    "serving_platform",
-    "monitoring_platform",
+    "mlplatform",
+    "exemplo_features",
+    "exemplo_training",
+    "exemplo_serving_batch",
+    "exemplo_serving_online",
+    "exemplo_monitoring",
 ]
+
+# ---------------------------------------------------------------------------
+# Contrato de fronteiras do mlplatform.
+#
+# Com quatro repositórios separados, o acoplamento entre contextos era impossível
+# por construção. Consolidando num pacote só, ele passa a custar um import — e
+# reapareceria em semanas se dependesse de disciplina em code review. Estas
+# regras tornam a fronteira verificável em CI.
+#
+# Falta uma terceira regra: o core/ não pode importar infraestrutura (pyspark,
+# mlflow, sklearn, databricks.*). Ela ainda NÃO está aqui porque o código atual
+# a viola — core/audit.py importa pyspark.sql.functions dentro de
+# get_last_success_checkpoint. Entra quando essa função virar adapter.
+# ---------------------------------------------------------------------------
+[lint.flake8-tidy-imports.banned-api]
+"mlplatform.features".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
+"mlplatform.training".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
+"mlplatform.serving".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
+"mlplatform.monitoring".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
 
 [lint.per-file-ignores]
 # scripts/*.py fazem sys.path.insert antes do import — não são módulos do
 # pacote instalável, são entry points standalone chamados pelo CI.
 "**/scripts/*.py" = ["E402"]
+
+# Os testes exercitam cada contexto de fora; e os entry points são o composition
+# root, cujo trabalho é justamente montar os contextos. Ambos precisam importá-los.
+"tests/**" = ["TID251"]
+"**/entrypoints.py" = ["TID251"]
+
+# O repositório de domínio consome os contextos — o contrato vale entre os
+# contextos DENTRO do framework, não para quem está de fora dele.
+"**/src/exemplo_*/**" = ["TID251"]
