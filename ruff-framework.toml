@@ -1,0 +1,42 @@
+# Contrato de arquitetura interna do `mlplatform`.
+#
+# Estende o baseline compartilhado e é usado SÓ pelo platform-libs. Repositórios
+# de domínio ficam no `ruff.toml` puro: eles importam pyspark e o SDK do
+# Databricks legitimamente, e as regras abaixo misfirariam neles.
+extend = "ruff.toml"
+
+[lint]
+extend-select = ["TID"]
+
+# ---------------------------------------------------------------------------
+# 1. Bounded contexts não se importam entre si.
+#
+# Com quatro repositórios separados, esse acoplamento era impossível por
+# construção. Num pacote só, custa um import — e voltaria em semanas se
+# dependesse de alguém pegar em code review.
+#
+# 2. Infraestrutura só entra pelos adapters.
+#
+# E mesmo lá, com o import DENTRO do método: o framework é embarcado no artefato
+# MLflow via code_paths e importado no container do endpoint de serving, onde
+# pyspark não existe. Um import no topo quebraria produção sem nenhum teste
+# reclamar — `tests/core/test_import_hygiene.py` guarda o mesmo risco pelo outro
+# lado, medindo o que `import mlplatform` de fato carrega.
+# ---------------------------------------------------------------------------
+[lint.flake8-tidy-imports.banned-api]
+"mlplatform.features".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
+"mlplatform.training".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
+"mlplatform.serving".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
+"mlplatform.monitoring".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
+"pyspark".msg = "infraestrutura só em adapters.py, e com o import dentro do método"
+"delta".msg = "infraestrutura só em adapters.py, e com o import dentro do método"
+"databricks".msg = "infraestrutura só em adapters.py/entrypoints.py, e com o import dentro do método"
+
+[lint.per-file-ignores]
+"**/scripts/*.py" = ["E402"]
+# Testes exercitam os contextos de fora; entrypoints.py é o composition root,
+# cujo trabalho é justamente montá-los; adapters são, por definição, onde a
+# infraestrutura entra.
+"tests/**" = ["TID251"]
+"**/entrypoints.py" = ["TID251"]
+"**/adapters.py" = ["TID251"]

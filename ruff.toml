@@ -37,35 +37,17 @@ known-first-party = [
     "monitoring_platform",
 ]
 
-# ---------------------------------------------------------------------------
-# Contrato de fronteiras do mlplatform.
+# Este arquivo é o baseline compartilhado por TODO o ecossistema — framework e
+# repositórios de domínio. Ele não carrega as regras de arquitetura interna do
+# mlplatform: essas moram em `ruff-framework.toml`, que estende este e é usado só
+# pelo platform-libs.
 #
-# Com quatro repositórios separados, o acoplamento entre contextos era impossível
-# por construção. Consolidando num pacote só, ele passa a custar um import — e
-# reapareceria em semanas se dependesse de disciplina em code review. Estas
-# regras tornam a fronteira verificável em CI.
-#
-# Falta uma terceira regra: o core/ não pode importar infraestrutura (pyspark,
-# mlflow, sklearn, databricks.*). Ela ainda NÃO está aqui porque o código atual
-# a viola — core/audit.py importa pyspark.sql.functions dentro de
-# get_last_success_checkpoint. Entra quando essa função virar adapter.
-# ---------------------------------------------------------------------------
-[lint.flake8-tidy-imports.banned-api]
-"mlplatform.features".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
-"mlplatform.training".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
-"mlplatform.serving".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
-"mlplatform.monitoring".msg = "bounded contexts não se importam entre si — compartilhe via mlplatform.core"
+# A separação não é organizacional, é de correção: código de domínio importa
+# pyspark e o SDK do Databricks legitimamente, e uma regra que proibisse isso
+# aqui misfiraria em todo domínio — ou exigiria uma lista de exceções amarrada ao
+# nome dos pacotes de cada domínio, que quebra no primeiro domínio novo.
 
 [lint.per-file-ignores]
 # scripts/*.py fazem sys.path.insert antes do import — não são módulos do
 # pacote instalável, são entry points standalone chamados pelo CI.
 "**/scripts/*.py" = ["E402"]
-
-# Os testes exercitam cada contexto de fora; e os entry points são o composition
-# root, cujo trabalho é justamente montar os contextos. Ambos precisam importá-los.
-"tests/**" = ["TID251"]
-"**/entrypoints.py" = ["TID251"]
-
-# O repositório de domínio consome os contextos — o contrato vale entre os
-# contextos DENTRO do framework, não para quem está de fora dele.
-"**/src/exemplo_*/**" = ["TID251"]
