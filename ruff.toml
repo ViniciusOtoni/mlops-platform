@@ -25,6 +25,16 @@ known-first-party = [
     "exemplo_serving_batch",
     "exemplo_serving_online",
     "exemplo_monitoring",
+    # Transitório: o exemplo-domain ainda pina os quatro pacotes antigos por tag
+    # e só migra para o mlplatform mais adiante. Enquanto isso ele continua
+    # importando estes nomes — tirá-los daqui agora faria o isort reclassificá-los
+    # como third-party e quebraria o CI do domínio, num repositório que este PR
+    # nem toca. Removê-los é a última etapa da migração do domínio.
+    "platform_core",
+    "feature_platform",
+    "training_platform",
+    "serving_platform",
+    "monitoring_platform",
 ]
 
 # ---------------------------------------------------------------------------
