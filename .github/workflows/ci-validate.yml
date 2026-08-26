@@ -79,6 +79,13 @@ jobs:
       # componente a componente.
       - name: Materialize the DAB bundle
         if: inputs.validate-bundle
+        # Precisa de credenciais: o gerador de serving/online resolve o alias do
+        # modelo para uma versão numérica via WorkspaceClient, porque DABs não
+        # aceita alias em model_serving_endpoints. Sem isso o passo falha com
+        # "cannot configure default credentials".
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
           if [ -f conf/variables.yml ]; then
             mlp-generate-bundle
