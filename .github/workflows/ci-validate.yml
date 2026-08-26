@@ -22,6 +22,14 @@ on:
         required: false
         type: boolean
         default: false
+      ruff-config:
+        description: >-
+          Config de lint dentro do mlops-platform. O default é o baseline do
+          ecossistema; o platform-libs passa `ruff-framework.toml`, que adiciona
+          o contrato de arquitetura interna do framework.
+        required: false
+        type: string
+        default: ruff.toml
 
 jobs:
   validate:
@@ -52,7 +60,7 @@ jobs:
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
       - name: Lint (ruff)
-        run: ruff check --config "$GITHUB_WORKSPACE/.mlops-platform/ruff.toml" .
+        run: ruff check --config "$GITHUB_WORKSPACE/.mlops-platform/${{ inputs.ruff-config }}" .
 
       - name: Run unit tests
         run: pytest
@@ -64,6 +72,22 @@ jobs:
       - name: Install Databricks CLI
         if: inputs.validate-bundle
         uses: databricks/setup-cli@main
+
+      # Um bundle migrado não versiona databricks.yml — sem materializar antes,
+      # o validate rodaria contra um bundle que ainda não existe. Bundles não
+      # migrados seguem pelo gerador legado enquanto a migração acontece
+      # componente a componente.
+      - name: Materialize the DAB bundle
+        if: inputs.validate-bundle
+        run: |
+          if [ -f conf/variables.yml ]; then
+            mlp-generate-bundle
+          elif [ -f scripts/generate_resources.py ]; then
+            echo "bundle ainda não migrado — usando o gerador legado"
+            python scripts/generate_resources.py
+          else
+            echo "sem conf/variables.yml e sem gerador legado — nada a materializar"
+          fi
 
       - name: Validate bundle syntax
         if: inputs.validate-bundle

@@ -53,12 +53,19 @@ jobs:
       - name: Run unit tests
         run: pytest
 
-      - name: Generate resources (if this bundle has a generator)
+      # Um bundle migrado declara conf/variables.yml e NÃO versiona databricks.yml
+      # nem resources/ — ambos são materializados aqui. Um bundle ainda não
+      # migrado cai no caminho legado. Os dois convivem enquanto o exemplo-domain
+      # migra um componente por vez; o ramo legado sai quando o último migrar.
+      - name: Materialize the DAB bundle
         run: |
-          if [ -f scripts/generate_resources.py ]; then
+          if [ -f conf/variables.yml ]; then
+            mlp-generate-bundle
+          elif [ -f scripts/generate_resources.py ]; then
+            echo "bundle ainda não migrado — usando o gerador legado"
             python scripts/generate_resources.py
           else
-            echo "no scripts/generate_resources.py — skipping"
+            echo "sem conf/variables.yml e sem gerador legado — nada a materializar"
           fi
 
       - name: Install Databricks CLI
