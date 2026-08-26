@@ -47,7 +47,11 @@ jobs:
       - name: Install dependencies
         run: |
           pip install build # usado pelo bloco `artifacts:` do databricks.yml, se houver
-          if [ -f pyproject.toml ]; then pip install -e .; fi
+          # `.[dev]` cobre pacotes que declaram suas dependências de teste no
+          # próprio pyproject. pip só avisa quando o extra não existe, então
+          # pacotes sem ele seguem funcionando; requirements-dev.txt continua
+          # atendido para os bundles ainda não migrados.
+          if [ -f pyproject.toml ]; then pip install -e ".[dev]"; fi
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
       - name: Run unit tests
