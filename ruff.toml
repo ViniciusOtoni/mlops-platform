@@ -1,6 +1,14 @@
 target-version = "py311"
 line-length = 120
 
+# Sem isso, ruff usa o diretório de invocação como raiz implícita de detecção
+# de first-party — o que muda o resultado dependendo de onde o comando roda
+# (o CI sempre invoca de dentro do pacote via `working-directory`, então "src"
+# aqui sempre resolve para "<pacote>/src", nunca a raiz do pacote inteira —
+# isso evita classificar pastas como examples/scripts/tests como first-party
+# só por estarem no mesmo nível de src/).
+src = ["src"]
+
 # notebooks/ são fonte de notebook Databricks (marcadores de célula
 # "# COMMAND ----------", globais injetados em runtime como dbutils/spark) —
 # não são módulos Python importáveis, não fazem sentido lintar como tal.
