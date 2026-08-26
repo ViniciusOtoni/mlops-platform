@@ -50,8 +50,38 @@ Todo repositório de domínio declara um `platform.yml` na raiz — ver exemplo 
 [`docs/platform-yml-example/platform.yml`](docs/platform-yml-example/platform.yml).
 Sem enforcement automatizado no v1: é convenção documentada, não validada por CI.
 
-## Versionamento dos pacotes-framework
+## Versionamento do framework
 
-Manual, via tag semver em cada um dos quatro repositórios de componente
-(`feature-platform`, `training-platform`, `serving-platform`,
-`monitoring-platform`). Um domínio referencia a tag exata que testou.
+O framework é um pacote só — [`mlplatform`](https://github.com/ViniciusOtoni/platform-libs) —
+e tem uma versão só. Os quatro repositórios de componente que existiam antes
+(`feature-platform`, `training-platform`, `serving-platform`, `monitoring-platform`)
+foram consolidados e removidos; o histórico de todos está preservado no
+`platform-libs`.
+
+O versionamento é automatizado pelos reusable workflows deste repositório: o
+`ci-validate.yml` bloqueia o merge se a versão do `pyproject.toml` não tiver sido
+incrementada em relação à última tag, e o `release-package.yml` publica a tag
+`mlplatform-vX.Y.Z` com o wheel anexado ao Release.
+
+Domínios pinam a versão **exata** (`@mlplatform-vX.Y.Z`), nunca um range. Com um
+pacote único, é isso que preserva a capacidade de cada bundle subir em momento
+diferente — antes esse isolamento vinha de graça, porque cada componente tinha a
+sua própria versão.
+
+## Contrato de arquitetura do framework
+
+O `ruff.toml` deste repositório é a configuração de lint compartilhada por todo o
+ecossistema, e é também onde mora o contrato de fronteiras do `mlplatform`:
+
+- **Os bounded contexts não se importam entre si.** `features`, `training`,
+  `serving` e `monitoring` só compartilham código através do `core/`. Sem isso, a
+  consolidação num pacote só reintroduziria em semanas o acoplamento que os quatro
+  repositórios separados evitavam por construção.
+- **O `core/` não importa contexto nenhum.** É shared kernel: quem depende dele é
+  quem está acima, nunca o contrário.
+
+Uma terceira regra — o `core/` não pode importar infraestrutura (`pyspark`,
+`mlflow`, `sklearn`, `databricks.*`) — ainda **não** está imposta, porque
+`core/audit.py` viola: ele importa `pyspark.sql.functions` dentro de
+`get_last_success_checkpoint`. Essa função é infraestrutura morando no kernel, e a
+regra entra junto com a extração dela para um adapter.

@@ -1,9 +1,16 @@
+# Manifesto mínimo de um repositório de domínio.
+#
+# Antes havia uma versão por componente (feature-platform, training-platform,
+# serving-platform, monitoring-platform), porque eram quatro pacotes distintos.
+# Hoje o framework é um só — `mlplatform` — e o domínio declara uma versão só.
+#
+# A versão é pinada de forma EXATA, nunca um range: com um pacote único, é isso
+# que preserva a capacidade de cada bundle do domínio subir em momento diferente.
 domain: credito
 owner: time-risco-credito
+framework:
+  package: mlplatform
+  version: v2.0.0
 components:
-  features:
-    package: feature-platform
-    version: v0.1.0
-  training:
-    package: training-platform
-    version: v0.1.0
+  - features
+  - training
