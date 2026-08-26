@@ -44,8 +44,11 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
 
-      - name: Install dev dependencies
-        run: pip install -r requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          pip install build # usado pelo bloco `artifacts:` do databricks.yml, se houver
+          if [ -f pyproject.toml ]; then pip install -e .; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
       - name: Run unit tests
         run: pytest
