@@ -1,0 +1,95 @@
+# .github/workflows/promote-model.yml
+#
+# Promoção de um modelo para um alias, disparada à mão.
+#
+# Separado do retreino de propósito, e não por elegância: o gate de aprovação
+# precisa existir de verdade.
+#
+# O caminho natural seria um único workflow com `environment:` guardando o job
+# de promoção. Só que "Required reviewers" em Environment é recurso de plano —
+# num repositório privado de conta gratuita a API responde 422, o Environment é
+# criado SEM regra nenhuma, e o job passa direto. O gate viraria decorativo, que
+# é pior que não ter gate: parece proteção.
+#
+# `workflow_dispatch` gateia em qualquer plano, porque exige que uma pessoa
+# clique. O `environment:` continua declarado abaixo — quando o plano suportar
+# required reviewers, ele passa a somar uma segunda camada sem mudar nada aqui.
+name: Promote Model (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Caminho do bundle de training dentro do repositório chamador.
+        required: true
+        type: string
+      domain:
+        description: Domínio da config (o campo `domain`, não o nome do entry point).
+        required: true
+        type: string
+      model-name:
+        required: true
+        type: string
+      version:
+        description: Versão a promover. Vem do resumo do retreino, não é resolvida aqui.
+        required: true
+        type: string
+      catalog:
+        required: false
+        type: string
+        default: workspace
+      alias:
+        required: false
+        type: string
+        default: champion
+      promotion-environment:
+        description: >-
+          Environment que, quando o plano suporta required reviewers, adiciona
+          uma segunda camada de aprovação.
+        required: false
+        type: string
+        default: model-promotion
+      python-version:
+        required: false
+        type: string
+        default: "3.11"
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.promotion-environment }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install the domain bundle
+        run: pip install -e .
+
+      - name: Promote the approved version
+        run: |
+          mlp-promote-model \
+            --catalog "${{ inputs.catalog }}" \
+            --domain "${{ inputs.domain }}" \
+            --model_name "${{ inputs.model-name }}" \
+            --version "${{ inputs.version }}" \
+            --alias "${{ inputs.alias }}"
+
+      - name: Record the promotion
+        run: |
+          {
+            echo "### Promovido"
+            echo ""
+            echo "\`${{ inputs.model-name }}@${{ inputs.alias }}\` -> **v${{ inputs.version }}**"
+            echo ""
+            echo "O serving batch usa a versão nova na próxima execução."
+            echo "O endpoint online precisa do job \`refresh_endpoint\` para reapontar."
+          } >> "$GITHUB_STEP_SUMMARY"
