@@ -130,7 +130,12 @@ jobs:
           MODEL: ${{ inputs.catalog }}.${{ inputs.domain }}_models.${{ inputs.model-name }}
           VERSION: ${{ steps.candidate.outputs.version }}
           ALIAS: ${{ inputs.alias }}
-          DRIFTED: ${{ join(github.event.client_payload.drifted_columns, ', ') }}
+          # `join` sobre nulo quebra a avaliação, e `client_payload` é nulo
+          # quando o retreino foi disparado à mão em vez de por drift.
+          DRIFTED: >-
+            ${{ github.event.client_payload.drifted_columns
+                && join(github.event.client_payload.drifted_columns, ', ')
+                || '' }}
         # A issue existe para o número da versão não se perder. Quem for
         # promover precisa dele, e caçá-lo no MLflow depois convida a promover a
         # versão errada — a "mais recente" pode ser outra se um treino agendado
