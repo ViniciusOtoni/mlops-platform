@@ -1,19 +1,22 @@
 # .github/workflows/retrain-on-drift.yml
 #
-# Retreino disparado por drift, com aprovação humana antes da promoção.
+# Retreino disparado por drift.
 #
 # O job de drift no Databricks detecta deslocamento, dispara um
 # `repository_dispatch` no repositório do domínio, e o workflow do domínio chama
-# este aqui. São dois jobs de propósito:
+# este aqui. Ele treina e REGISTRA o candidato — e não promove.
 #
-#   retrain  -> treina e REGISTRA o candidato, sem promover
-#   promote  -> move o alias, atrás de um GitHub Environment com reviewers
+# A promoção vive em `promote-model.yml`, disparada à mão. A separação é o
+# ponto: drift é sinal de que o mundo mudou, não prova de que o modelo novo é
+# melhor. Ele pode ter treinado sobre o mesmo dado deslocado e aprendido o
+# deslocamento. Promover automaticamente trocaria um modelo defasado por um
+# desconhecido, sem ninguém olhar.
 #
-# A separação é o ponto todo. Drift é sinal de que o mundo mudou, não prova de
-# que o modelo novo é melhor: pode ter treinado sobre o mesmo dado deslocado e
-# aprendido o deslocamento. Promover automaticamente trocaria um modelo
-# defasado por um modelo desconhecido, sem ninguém olhar. O candidato fica
-# registrado, com run e métricas no MLflow, e alguém decide.
+# Por que a promoção não é um segundo job guardado por `environment:` aqui:
+# "Required reviewers" é recurso de plano. Num repositório privado de conta
+# gratuita a API responde 422 e o Environment é criado SEM regra alguma — o job
+# passaria direto e o gate seria decorativo, que é pior que não ter gate.
+# `workflow_dispatch` exige que uma pessoa clique, em qualquer plano.
 name: Retrain on Drift (reusable)
 
 on:
@@ -40,18 +43,10 @@ on:
         type: string
         default: workspace
       alias:
-        description: Alias a promover depois da aprovação.
+        description: Alias que a promoção manual vai mover, quando aprovada.
         required: false
         type: string
         default: champion
-      promotion-environment:
-        description: >-
-          GitHub Environment que guarda a promoção. É nele que se configura
-          "Required reviewers" — sem isso o gate não existe e o job promove
-          direto.
-        required: false
-        type: string
-        default: model-promotion
       python-version:
         required: false
         type: string
@@ -60,14 +55,15 @@ on:
 jobs:
   retrain:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
     env:
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-    outputs:
-      version: ${{ steps.candidate.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -83,27 +79,31 @@ jobs:
 
       - name: Resolve the training job id
         id: job
+        # O DABs prefixa o nome do job por target (`[dev <usuario>] <nome>`),
+        # então a busca é por sufixo, não por igualdade.
         run: |
           set -euo pipefail
-          # O DABs prefixa o nome do job por target (`[dev <usuario>] <nome>`),
-          # então a busca é por sufixo, não por igualdade.
-          job_id=$(databricks jobs list --output json \
-            | python -c "
-import sys, json
-target = '${{ inputs.training-job-name }}'
-data = json.load(sys.stdin)
-jobs = data if isinstance(data, list) else data.get('jobs', [])
-hits = [j['job_id'] for j in jobs if j.get('settings', {}).get('name', '').endswith(target)]
-if len(hits) != 1:
-    raise SystemExit(f'esperava 1 job terminando em {target!r}, achei {len(hits)}')
-print(hits[0])
-")
+          databricks jobs list --output json > /tmp/jobs.json
+          job_id=$(python - "${{ inputs.training-job-name }}" <<'SCRIPT'
+          import json
+          import sys
+
+          target = sys.argv[1]
+          with open("/tmp/jobs.json", encoding="utf-8") as handle:
+              data = json.load(handle)
+          jobs = data if isinstance(data, list) else data.get("jobs", [])
+          hits = [j["job_id"] for j in jobs if j.get("settings", {}).get("name", "").endswith(target)]
+          if len(hits) != 1:
+              raise SystemExit(f"esperava 1 job terminando em {target!r}, achei {len(hits)}")
+          print(hits[0])
+          SCRIPT
+          )
           echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
 
       - name: Retrain without promoting
         # `promotion_alias=none` é o que segura o candidato. Sem isso o treino
-        # promoveria sozinho e a aprovação abaixo julgaria um modelo que já
-        # está servindo.
+        # promoveria sozinho e a revisão abaixo julgaria um modelo que já está
+        # servindo.
         run: |
           databricks jobs run-now --json '{
             "job_id": ${{ steps.job.outputs.job_id }},
@@ -113,8 +113,8 @@ print(hits[0])
       - name: Capture the candidate version
         id: candidate
         # A versão é FIXADA aqui, e não resolvida na hora da promoção: entre a
-        # aprovação e o promote pode ter rodado um treino agendado, e quem
-        # aprovou inspecionou uma versão específica.
+        # revisão e o promote pode ter rodado um treino agendado, e quem
+        # aprovar inspecionou uma versão específica.
         run: |
           set -euo pipefail
           version=$(mlp-model-version \
@@ -122,63 +122,55 @@ print(hits[0])
             --domain "${{ inputs.domain }}" \
             --model_name "${{ inputs.model-name }}")
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Candidato registrado: v$version (ainda NÃO promovido)"
+          echo "Candidato registrado: v$version (NAO promovido)"
+
+      - name: Open a review request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODEL: ${{ inputs.catalog }}.${{ inputs.domain }}_models.${{ inputs.model-name }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+          ALIAS: ${{ inputs.alias }}
+          DRIFTED: ${{ join(github.event.client_payload.drifted_columns, ', ') }}
+        # A issue existe para o número da versão não se perder. Quem for
+        # promover precisa dele, e caçá-lo no MLflow depois convida a promover a
+        # versão errada — a "mais recente" pode ser outra se um treino agendado
+        # rodou nesse meio-tempo.
+        run: |
+          set -euo pipefail
+          {
+            echo "Drift disparou um retreino. O candidato esta **registrado e nao promovido**."
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| modelo | \`$MODEL\` |"
+            echo "| versao candidata | **v$VERSION** |"
+            echo "| alias atual | \`$ALIAS\` (ainda aponta para a versao anterior) |"
+            echo "| colunas com drift | ${DRIFTED:-disparo manual} |"
+            echo ""
+            echo "Compare a run desta versao contra a do champion atual no MLflow antes de"
+            echo "aprovar. Drift indica que o mundo mudou, nao que o modelo novo esteja"
+            echo "melhor: ele pode ter treinado sobre o mesmo dado deslocado e aprendido o"
+            echo "deslocamento."
+            echo ""
+            echo "Se o candidato se sustentar, rode o workflow **Promote Model** com"
+            echo "\`version=$VERSION\`."
+          } > /tmp/review-body.md
+
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "Revisar candidato ${{ inputs.model-name }} v$VERSION" \
+            --body-file /tmp/review-body.md
 
       - name: Summarise what needs review
         run: |
           {
-            echo "### Candidato aguardando revisão"
+            echo "### Candidato aguardando revisao"
             echo ""
             echo "| | |"
             echo "|---|---|"
             echo "| modelo | \`${{ inputs.catalog }}.${{ inputs.domain }}_models.${{ inputs.model-name }}\` |"
-            echo "| versão | **v${{ steps.candidate.outputs.version }}** |"
+            echo "| versao | **v${{ steps.candidate.outputs.version }}** |"
             echo "| alias a promover | \`${{ inputs.alias }}\` |"
             echo ""
-            echo "Compare a run desta versão contra a do champion atual no MLflow"
-            echo "antes de aprovar. Drift indica que o mundo mudou — não que o"
-            echo "modelo novo esteja melhor."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  promote:
-    needs: retrain
-    runs-on: ubuntu-latest
-    # É AQUI que a aprovação manual acontece. O Environment precisa ter
-    # "Required reviewers" configurado no repositório; sem isso este job roda
-    # direto e o gate é decorativo.
-    environment: ${{ inputs.promotion-environment }}
-    defaults:
-      run:
-        working-directory: ${{ inputs.working-directory }}
-    env:
-      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ inputs.python-version }}
-
-      - name: Install the domain bundle
-        run: pip install -e .
-
-      - name: Promote the approved version
-        run: |
-          mlp-promote-model \
-            --catalog "${{ inputs.catalog }}" \
-            --domain "${{ inputs.domain }}" \
-            --model_name "${{ inputs.model-name }}" \
-            --version "${{ needs.retrain.outputs.version }}" \
-            --alias "${{ inputs.alias }}"
-
-      - name: Record the promotion
-        run: |
-          {
-            echo "### Promovido"
-            echo ""
-            echo "\`${{ inputs.model-name }}@${{ inputs.alias }}\` -> **v${{ needs.retrain.outputs.version }}**"
-            echo ""
-            echo "O serving batch passa a usar a versão nova na próxima execução."
-            echo "O endpoint online precisa do job \`refresh_endpoint\` para reapontar."
+            echo "A promocao e manual: workflow **Promote Model**."
           } >> "$GITHUB_STEP_SUMMARY"
