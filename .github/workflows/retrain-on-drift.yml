@@ -55,9 +55,11 @@ on:
 jobs:
   retrain:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
+    # Sem bloco `permissions:` pedindo escrita. Um workflow reutilizável não
+    # pode escalar além do teto do chamador, e um repositório com
+    # `default_workflow_permissions: read` — o padrão de conta gratuita —
+    # recusa o workflow inteiro no parse. O resultado é startup_failure sem
+    # job, sem log e sem mensagem na UI.
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
@@ -124,49 +126,18 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Candidato registrado: v$version (NAO promovido)"
 
-      - name: Open a review request
+      - name: Summarise what needs review
         env:
-          GH_TOKEN: ${{ github.token }}
-          MODEL: ${{ inputs.catalog }}.${{ inputs.domain }}_models.${{ inputs.model-name }}
-          VERSION: ${{ steps.candidate.outputs.version }}
-          ALIAS: ${{ inputs.alias }}
           # `join` sobre nulo quebra a avaliação, e `client_payload` é nulo
           # quando o retreino foi disparado à mão em vez de por drift.
           DRIFTED: >-
             ${{ github.event.client_payload.drifted_columns
                 && join(github.event.client_payload.drifted_columns, ', ')
-                || '' }}
-        # A issue existe para o número da versão não se perder. Quem for
-        # promover precisa dele, e caçá-lo no MLflow depois convida a promover a
-        # versão errada — a "mais recente" pode ser outra se um treino agendado
-        # rodou nesse meio-tempo.
-        run: |
-          set -euo pipefail
-          {
-            echo "Drift disparou um retreino. O candidato esta **registrado e nao promovido**."
-            echo ""
-            echo "| | |"
-            echo "|---|---|"
-            echo "| modelo | \`$MODEL\` |"
-            echo "| versao candidata | **v$VERSION** |"
-            echo "| alias atual | \`$ALIAS\` (ainda aponta para a versao anterior) |"
-            echo "| colunas com drift | ${DRIFTED:-disparo manual} |"
-            echo ""
-            echo "Compare a run desta versao contra a do champion atual no MLflow antes de"
-            echo "aprovar. Drift indica que o mundo mudou, nao que o modelo novo esteja"
-            echo "melhor: ele pode ter treinado sobre o mesmo dado deslocado e aprendido o"
-            echo "deslocamento."
-            echo ""
-            echo "Se o candidato se sustentar, rode o workflow **Promote Model** com"
-            echo "\`version=$VERSION\`."
-          } > /tmp/review-body.md
-
-          gh issue create \
-            --repo "${{ github.repository }}" \
-            --title "Revisar candidato ${{ inputs.model-name }} v$VERSION" \
-            --body-file /tmp/review-body.md
-
-      - name: Summarise what needs review
+                || 'disparo manual' }}
+        # O resumo é onde o número da versão fica registrado. Quem for promover
+        # precisa dele, e caçá-lo no MLflow depois convida a promover a versão
+        # errada — a "mais recente" pode ser outra se um treino agendado rodou
+        # nesse meio-tempo.
         run: |
           {
             echo "### Candidato aguardando revisao"
@@ -174,8 +145,15 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| modelo | \`${{ inputs.catalog }}.${{ inputs.domain }}_models.${{ inputs.model-name }}\` |"
-            echo "| versao | **v${{ steps.candidate.outputs.version }}** |"
-            echo "| alias a promover | \`${{ inputs.alias }}\` |"
+            echo "| versao candidata | **v${{ steps.candidate.outputs.version }}** |"
+            echo "| alias atual | \`${{ inputs.alias }}\` (ainda na versao anterior) |"
+            echo "| colunas com drift | $DRIFTED |"
             echo ""
-            echo "A promocao e manual: workflow **Promote Model**."
+            echo "Compare a run desta versao contra a do champion atual no MLflow."
+            echo "Drift indica que o mundo mudou, nao que o modelo novo esteja melhor:"
+            echo "ele pode ter treinado sobre o mesmo dado deslocado e aprendido o"
+            echo "deslocamento."
+            echo ""
+            echo "Para promover: workflow **Promote Model**, com"
+            echo "\`version=${{ steps.candidate.outputs.version }}\`."
           } >> "$GITHUB_STEP_SUMMARY"
